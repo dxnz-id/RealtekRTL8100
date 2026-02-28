@@ -2301,7 +2301,8 @@ void RTL8100::setLinkDown()
     txClearDescriptors();
     
     setPhyMedium();
-
+    freeDMADescriptors();
+    setupDMADescriptors();
     IOLog("Ethernet [RealtekRTL8100]: Link down on en%u\n", netif->getUnitNumber());
 }
 
