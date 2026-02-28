@@ -52,6 +52,12 @@ Troubleshooting
 Changelog
 ---------
 
+Version 2.0.2 (2026-03-01):
+ - Fixes kernel panic and network issues after reconnect on RTL8106E
+
+Version 2.0.1 (2018-05-11):
+ - Fixes a problem with retrieval of the permanent MAC address on some chips.
+
 Version 2.0.0 (2017-04-01):
  - Uses Apple's private driver interface introduced with 10.8.
  - Supports packet scheduling with QFQ.
