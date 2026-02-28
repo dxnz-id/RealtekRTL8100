@@ -328,7 +328,7 @@
 				INFOPLIST_FILE = "RealtekRTL8100/RealtekRTL8100-Info.plist";
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MODULE_NAME = com.insanelymac.RealtekRTL8100;
-				MODULE_VERSION = 2.0.1;
+				MODULE_VERSION = 2.0.2;
 				ONLY_ACTIVE_ARCH = NO;
 				OTHER_CFLAGS = "";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.insanelymac.${PRODUCT_NAME:rfc1034identifier}";
@@ -354,7 +354,7 @@
 				INFOPLIST_FILE = "RealtekRTL8100/RealtekRTL8100-Info.plist";
 				MACOSX_DEPLOYMENT_TARGET = 10.13;
 				MODULE_NAME = com.insanelymac.RealtekRTL8100;
-				MODULE_VERSION = 2.0.1;
+				MODULE_VERSION = 2.0.2;
 				OTHER_CFLAGS = "";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.insanelymac.${PRODUCT_NAME:rfc1034identifier}";
 				PRODUCT_NAME = "$(TARGET_NAME)";
