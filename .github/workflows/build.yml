@@ -1,0 +1,62 @@
+name: Build UAF-guard kext
+
+on:
+  push:
+    branches:
+      - fix/uaf-guard
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          sw_vers
+
+      - name: Build kext
+        run: |
+          xcodebuild \
+            -project RealtekRTL8100.xcodeproj \
+            -target RealtekRTL8100 \
+            -configuration Release \
+            ARCHS=x86_64 \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            COPY_PHASE_STRIP=NO \
+            STRIP_INSTALLED_PRODUCT=NO \
+            build
+
+      - name: Inspect and package
+        run: |
+          set -euo pipefail
+          KEXT=$(find build -maxdepth 6 -type d -name 'RealtekRTL8100.kext' -print | head -n 1)
+          if [ -z "$KEXT" ]; then
+            echo "kext not found; kext directories in build:"
+            find build -maxdepth 6 -type d -name '*.kext' -print || true
+            exit 1
+          fi
+          BIN="$KEXT/Contents/MacOS/RealtekRTL8100"
+          plutil -lint "$KEXT/Contents/Info.plist"
+          plutil -p "$KEXT/Contents/Info.plist" | grep -E 'CFBundleVersion|CFBundleShortVersionString|CFBundleIdentifier' || true
+          file "$BIN"
+          dwarfdump --uuid "$BIN" || true
+          nm -nm "$BIN" | grep -E 'setLinkDown|freeDMADescriptors|setupDMADescriptors|rxInterrupt|txInterrupt' || true
+          codesign --force --deep --sign - "$KEXT"
+          codesign -dv --verbose=2 "$KEXT" 2>&1 || true
+          ditto -c -k --keepParent "$KEXT" RealtekRTL8100-2.0.2-uafguard.kext.zip
+          shasum -a 256 RealtekRTL8100-2.0.2-uafguard.kext.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RealtekRTL8100-2.0.2-uafguard
+          path: RealtekRTL8100-2.0.2-uafguard.kext.zip
+          if-no-files-found: error

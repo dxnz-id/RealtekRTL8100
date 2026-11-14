@@ -1580,6 +1580,8 @@ error5:
 error4:
     rxBufDesc->release();
     rxBufDesc = NULL;
+    rxDescArray = NULL;
+    rxPhyAddr = NULL;
     
 error3:
     RELEASE(txMbufCursor);
@@ -1590,6 +1592,8 @@ error2:
 error1:
     txBufDesc->release();
     txBufDesc = NULL;
+    txDescArray = NULL;
+    txPhyAddr = NULL;
     goto done;
 }
 
@@ -1603,6 +1607,7 @@ void RTL8100::freeDMADescriptors()
         txBufDesc = NULL;
         txPhyAddr = NULL;
     }
+    txDescArray = NULL;
     RELEASE(txMbufCursor);
     
     if (rxBufDesc) {
@@ -1611,6 +1616,7 @@ void RTL8100::freeDMADescriptors()
         rxBufDesc = NULL;
         rxPhyAddr = NULL;
     }
+    rxDescArray = NULL;
     RELEASE(rxMbufCursor);
     
     for (i = 0; i < kNumRxDesc; i++) {
@@ -1643,6 +1649,12 @@ void RTL8100::txClearDescriptors()
     if (txNext2FreeMbuf) {
         freePacket(txNext2FreeMbuf);
         txNext2FreeMbuf = NULL;
+    }
+    if (!txDescArray) {
+        txDirtyDescIndex = txNextDescIndex = 0;
+        txNumFreeDesc = kNumTxDesc;
+        DebugLog("txClearDescriptors() <===\n");
+        return;
     }
     for (i = 0; i < kNumTxDesc; i++) {
         txDescArray[i].opts1 = OSSwapHostToLittleInt32((i != lastIndex) ? 0 : RingEnd);
@@ -1695,9 +1707,15 @@ void RTL8100::pciErrorInterrupt()
 
 void RTL8100::txInterrupt()
 {
-    SInt32 numDirty = kNumTxDesc - txNumFreeDesc;
-    UInt32 oldDirtyIndex = txDirtyDescIndex;
+    SInt32 numDirty;
+    UInt32 oldDirtyIndex;
     UInt32 descStatus;
+    
+    if (!txDescArray || !isEnabled)
+        return;
+    
+    numDirty = kNumTxDesc - txNumFreeDesc;
+    oldDirtyIndex = txDirtyDescIndex;
     
     while (numDirty-- > 0) {
         descStatus = OSSwapLittleToHostInt32(txDescArray[txDirtyDescIndex].opts1);
@@ -1734,7 +1752,7 @@ void RTL8100::txInterrupt()
 UInt32 RTL8100::rxInterrupt(IONetworkInterface *interface, uint32_t maxCount, IOMbufQueue *pollQueue, void *context)
 {
     IOPhysicalSegment rxSegment;
-    RtlDmaDesc *desc = &rxDescArray[rxNextDescIndex];
+    RtlDmaDesc *desc;
     mbuf_t bufPkt, newPkt;
     UInt64 addr;
     UInt32 opts1, opts2;
@@ -1743,6 +1761,11 @@ UInt32 RTL8100::rxInterrupt(IONetworkInterface *interface, uint32_t maxCount, IO
     UInt32 goodPkts = 0;
     UInt16 vlanTag;
     bool replaced;
+    
+    if (!rxDescArray || !isEnabled)
+        return 0;
+    
+    desc = &rxDescArray[rxNextDescIndex];
     
     while (!((descStatus1 = OSSwapLittleToHostInt32(desc->opts1)) & DescOwn) && (goodPkts < maxCount)) {
         opts1 = (rxNextDescIndex == kRxLastDesc) ? (RingEnd | DescOwn) : DescOwn;
@@ -1822,6 +1845,9 @@ void RTL8100::interruptOccurredPoll(OSObject *client, IOInterruptEventSource *sr
     
     UInt16 status;
     
+    if (!isEnabled)
+        return;
+    
     WriteReg16(IntrMask, 0x0000);
     status = ReadReg16(IntrStatus);
     
@@ -1858,6 +1884,9 @@ void RTL8100::interruptOccurred(OSObject *client, IOInterruptEventSource *src, i
 {
     UInt32 packets;
     UInt16 status;
+    
+    if (!isEnabled)
+        return;
     
 	WriteReg16(IntrMask, 0x0000);
     status = ReadReg16(IntrStatus);
@@ -2189,6 +2218,9 @@ void RTL8100::setLinkUp(UInt8 linkState)
     UInt16 newIntrMitigate = 0x5f51;
     UInt16 eee = 0;
     
+    if (!rxDescArray || !txDescArray)
+        return;
+    
     eeeName = eeeNames[kEEETypeNo];
     
     /* Get EEE mode. */
@@ -2302,7 +2334,10 @@ void RTL8100::setLinkDown()
     
     setPhyMedium();
     freeDMADescriptors();
-    setupDMADescriptors();
+    if (!setupDMADescriptors()) {
+        IOLog("Ethernet [RealtekRTL8100]: Failed to reinitialize DMA descriptors.\n");
+        return;
+    }
     IOLog("Ethernet [RealtekRTL8100]: Link down on en%u\n", netif->getUnitNumber());
 }
 
@@ -3328,6 +3363,9 @@ void RTL8100::startRTL8100(UInt16 newIntrMitigate, bool enableInterrupts)
     UInt16 mac_ocp_data;
     UInt8 link_control;
     
+    if (!rxDescArray || !txDescArray)
+        return;
+    
     WriteReg32(RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
     
     rtl8101_nic_reset(tp);
@@ -4289,6 +4327,9 @@ void RTL8100::timerActionRTL8100(IOTimerEventSource *timer)
     UInt32 data32;
     UInt8 currLinkState;
     bool newLinkState;
+    
+    if (!isEnabled)
+        return;
     
     /* Check for link state events. */
     currLinkState = ReadReg8(PHYstatus);
