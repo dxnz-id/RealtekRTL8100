@@ -20,12 +20,11 @@
 
 
 #include "RealtekRTL8100.h"
+#include "RealtekRTL8100Logic.h"
 
 #pragma mark --- function prototypes ---
 
 static inline UInt32 adjustIPv6Header(mbuf_t m);
-
-static inline u32 ether_crc(int length, unsigned char *data);
 
 #pragma mark --- public methods ---
 
@@ -241,6 +240,9 @@ void RTL8100::stop(IOService *provider)
 {
     UInt32 i;
     
+    if (isEnabled && netif)
+        disable(netif);
+
     if (netif) {
         detachInterface(netif);
         netif = NULL;
@@ -402,6 +404,7 @@ IOReturn RTL8100::enable(IONetworkInterface *netif)
     
     if (!setupDMADescriptors()) {
         IOLog("Ethernet [RealtekRTL8100]: Error allocating DMA descriptors.\n");
+        pciDevice->close(this);
         goto done;
     }
     selectedMedium = getSelectedMedium();
@@ -560,6 +563,7 @@ IOReturn RTL8100::outputStart(IONetworkInterface *interface, IOOptionBits option
             }
         } else {
             /* We use mssValue as a dummy here because it isn't needed anymore. */
+            checksums = 0;
             mbuf_get_csum_requested(m, &checksums, &mssValue);
             getChecksumCommand(&cmd, &opts2, checksums);
         }
@@ -966,20 +970,10 @@ IOReturn RTL8100::setMulticastMode(bool active)
 IOReturn RTL8100::setMulticastList(IOEthernetAddress *addrs, UInt32 count)
 {
     UInt32 *filterAddr = (UInt32 *)&multicastFilter;
-    UInt64 filter = 0;
-    UInt32 i, bitNumber;
     
     DebugLog("setMulticastList() ===>\n");
     
-    if (count <= kMCFilterLimit) {
-        for (i = 0; i < count; i++, addrs++) {
-            bitNumber = ether_crc(6, reinterpret_cast<unsigned char *>(addrs)) >> 26;
-            filter |= (1 << (bitNumber & 0x3f));
-        }
-        multicastFilter = OSSwapInt64(filter);
-    } else {
-        multicastFilter = 0xffffffffffffffff;
-    }
+    multicastFilter = OSSwapInt64(rtl8100MulticastFilter(reinterpret_cast<const unsigned char *>(addrs), count));
     WriteReg32(MAR0, *filterAddr++);
     WriteReg32(MAR1, *filterAddr);
     
@@ -1255,6 +1249,7 @@ void RTL8100::getParams()
     OSBoolean *tso6;
     OSBoolean *csoV6;
     OSBoolean *noASPM;
+    OSBoolean *eee;
     OSString *versionString;
     
     noASPM = OSDynamicCast(OSBoolean, getProperty(kDisableASPMName));
@@ -1262,7 +1257,8 @@ void RTL8100::getParams()
     
     DebugLog("Ethernet [RealtekRTL8100]: PCIe ASPM support %s.\n", disableASPM ? offName : onName);
     
-    enableEEE = OSDynamicCast(OSBoolean, getProperty(kEnableEeeName));
+    eee = OSDynamicCast(OSBoolean, getProperty(kEnableEeeName));
+    enableEEE = (eee) ? eee->getValue() : false;
     
     IOLog("Ethernet [RealtekRTL8100]: EEE support %s.\n", enableEEE ? onName : offName);
     
@@ -1333,21 +1329,22 @@ bool RTL8100::setupMediumDict()
     n = eeeCap ? MEDIUM_INDEX_COUNT : MEDIUM_INDEX_COUNT - 2;
     mediumDict = OSDictionary::withCapacity(n + 1);
     
-    if (mediumDict) {
-        for (i = MEDIUM_INDEX_AUTO; i < n; i++) {
-            medium = IONetworkMedium::medium(mediumTypeArray[i], mediumSpeedArray[i], 0, i);
-            
-            if (!medium)
-                goto error1;
-            
-            result = IONetworkMedium::addMedium(mediumDict, medium);
-            medium->release();
-            
-            if (!result)
-                goto error1;
-            
-            mediumTable[i] = medium;
-        }
+    if (!mediumDict)
+        goto error1;
+
+    for (i = MEDIUM_INDEX_AUTO; i < n; i++) {
+        medium = IONetworkMedium::medium(mediumTypeArray[i], mediumSpeedArray[i], 0, i);
+
+        if (!medium)
+            goto error1;
+
+        result = IONetworkMedium::addMedium(mediumDict, medium);
+        medium->release();
+
+        if (!result)
+            goto error1;
+
+        mediumTable[i] = medium;
     }
     result = publishMediumDictionary(mediumDict);
     
@@ -1359,7 +1356,11 @@ done:
     
 error1:
     IOLog("Ethernet [RealtekRTL8100]: Error creating medium dictionary.\n");
-    mediumDict->release();
+
+    if (mediumDict) {
+        mediumDict->release();
+        mediumDict = NULL;
+    }
     
     for (i = MEDIUM_INDEX_AUTO; i < MEDIUM_INDEX_COUNT; i++)
         mediumTable[i] = NULL;
@@ -4331,6 +4332,14 @@ void RTL8100::timerActionRTL8100(IOTimerEventSource *timer)
     if (!isEnabled)
         return;
     
+    /* A link-down reinitialization may have failed; retry until it succeeds. */
+    if (!rxDescArray || !txDescArray) {
+        if (!setupDMADescriptors()) {
+            IOLog("Ethernet [RealtekRTL8100]: Failed to reinitialize DMA descriptors. Retrying.\n");
+            goto done;
+        }
+    }
+
     /* Check for link state events. */
     currLinkState = ReadReg8(PHYstatus);
     newLinkState = (currLinkState & LinkStatus) ? true : false;
@@ -4434,32 +4443,11 @@ done:
 
 static inline UInt32 adjustIPv6Header(mbuf_t m)
 {
-    struct ip6_hdr *ip6Hdr = (struct ip6_hdr *)((UInt8 *)mbuf_data(m) + ETHER_HDR_LEN);
-    struct tcphdr *tcpHdr = (struct tcphdr *)((UInt8 *)ip6Hdr + sizeof(struct ip6_hdr));
-    UInt32 plen = ntohs(ip6Hdr->ip6_ctlun.ip6_un1.ip6_un1_plen);
-    UInt32 csum = ntohs(tcpHdr->th_sum) - plen;
+    UInt32 packetLength = 0;
     
-    csum += (csum >> 16);
-    ip6Hdr->ip6_ctlun.ip6_un1.ip6_un1_plen = 0;
-    tcpHdr->th_sum = htons((UInt16)csum);
+    if (!m || !rtl8100AdjustIPv6Header(mbuf_data(m), mbuf_len(m), &packetLength))
+        return 0;
     
-    return (plen + kMinL4HdrOffsetV6);
-}
-
-static unsigned const ethernet_polynomial = 0x04c11db7U;
-
-static inline u32 ether_crc(int length, unsigned char *data)
-{
-    int crc = -1;
-    
-    while(--length >= 0) {
-        unsigned char current_octet = *data++;
-        int bit;
-        for (bit = 0; bit < 8; bit++, current_octet >>= 1) {
-            crc = (crc << 1) ^
-            ((crc < 0) ^ (current_octet & 1) ? ethernet_polynomial : 0);
-        }
-    }
-    return crc;
+    return packetLength;
 }
 

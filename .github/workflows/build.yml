@@ -21,6 +21,9 @@ jobs:
           xcodebuild -version
           sw_vers
 
+      - name: Run logic tests
+        run: sh tests/run.sh
+
       - name: Build kext
         run: |
           xcodebuild \
@@ -52,11 +55,11 @@ jobs:
           nm -nm "$BIN" | grep -E 'setLinkDown|freeDMADescriptors|setupDMADescriptors|rxInterrupt|txInterrupt' || true
           codesign --force --deep --sign - "$KEXT"
           codesign -dv --verbose=2 "$KEXT" 2>&1 || true
-          ditto -c -k --keepParent "$KEXT" RealtekRTL8100-2.0.3.kext.zip
-          shasum -a 256 RealtekRTL8100-2.0.3.kext.zip
+          ditto -c -k --keepParent "$KEXT" RealtekRTL8100-2.0.4.kext.zip
+          shasum -a 256 RealtekRTL8100-2.0.4.kext.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: RealtekRTL8100-2.0.3
-          path: RealtekRTL8100-2.0.3.kext.zip
+          name: RealtekRTL8100-2.0.4
+          path: RealtekRTL8100-2.0.4.kext.zip
           if-no-files-found: error

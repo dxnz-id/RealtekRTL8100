@@ -1,7 +1,7 @@
 RealtekRTL8100
 ==============
 
-<H3>This project has been archived because all development activites have been stopped a long time ago and there won't be any updates in the future.
+macOS driver for Realtek RTL8100x PCIe Ethernet controllers.
 
  Installation
 ------------
@@ -51,6 +51,20 @@ Troubleshooting
 
 Changelog
 ---------
+
+Version 2.0.4 (2026-11-15):
+ - Disable the interface before detaching it or freeing DMA.
+ - Guard medium dictionary allocation failures.
+ - Use a 64-bit multicast hash.
+ - Close the PCI device when DMA setup fails.
+ - Retry DMA descriptor allocation after a failed link-down reinit.
+ - Read the `enableEEE` property as a boolean.
+ - Bounds-check IPv6 headers before adjusting them.
+ - Initialize checksum request flags before use.
+
+Version 2.0.3 (2026-11-15):
+ - Rebuild the RX ring on link down so reconnect obtains an IP again.
+ - Stop interrupts and the timer after descriptors are freed or the interface is disabled.
 
 Version 2.0.2 (2026-03-01):
  - Fixes kernel panic and network issues after reconnect on RTL8106E
