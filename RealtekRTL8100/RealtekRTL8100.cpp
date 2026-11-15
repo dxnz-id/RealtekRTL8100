@@ -60,6 +60,7 @@ bool RTL8100::init(OSDictionary *properties)
         isEnabled = false;
         promiscusMode = false;
         multicastMode = false;
+        rxConfigBase = 0;
         linkUp = false;
         rxPoll = false;
         polling = false;
@@ -893,7 +894,7 @@ IOReturn RTL8100::setPromiscuousMode(bool active)
         mcFilter[1] = *filterAddr;
     }
     promiscusMode = active;
-    rxMode |= (ReadReg32(RxConfig) & rxConfigMask);
+    rxMode |= rxConfigBase | (ReadReg32(RxConfig) & rxConfigMask);
     WriteReg32(RxConfig, rxMode);
     WriteReg32(MAR0, mcFilter[0]);
     WriteReg32(MAR1, mcFilter[1]);
@@ -931,7 +932,7 @@ IOReturn RTL8100::setMulticastMode(bool active)
         mcFilter[1] = mcFilter[0] = 0;
     }
     multicastMode = active;
-    rxMode |= (ReadReg32(RxConfig) & rxConfigMask);
+    rxMode |= rxConfigBase | (ReadReg32(RxConfig) & rxConfigMask);
     WriteReg32(RxConfig, rxMode);
     WriteReg32(MAR0, mcFilter[0]);
     WriteReg32(MAR1, mcFilter[1]);
@@ -1290,9 +1291,9 @@ void RTL8100::getParams()
     versionString = OSDynamicCast(OSString, getProperty(kDriverVersionName));
     
     if (versionString)
-        IOLog("Ethernet [RealtekRTL8100]: Version %s using interrupt mitigate value 0x%x. Please don't support tonymacx86.com!\n", versionString->getCStringNoCopy(), intrMitigateValue);
+        IOLog("Ethernet [RealtekRTL8100]: Version %s using interrupt mitigate value 0x%x.\n", versionString->getCStringNoCopy(), intrMitigateValue);
     else
-        IOLog("Ethernet [RealtekRTL8100]: Using interrupt mitigate value 0x%x. Please don't support tonymacx86.com!\n", intrMitigateValue);
+        IOLog("Ethernet [RealtekRTL8100]: Using interrupt mitigate value 0x%x.\n", intrMitigateValue);
 }
 
 static IOMediumType mediumTypeArray[MEDIUM_INDEX_COUNT] = {
@@ -1782,7 +1783,14 @@ UInt32 RTL8100::rxInterrupt(IONetworkInterface *interface, uint32_t maxCount, IO
         }
         
         descStatus2 = OSSwapLittleToHostInt32(desc->opts2);
-        pktSize = (descStatus1 & 0x1fff) - kIOEthernetCRCSize;
+        pktSize = rtl8100RxPayloadSize(descStatus1);
+
+        if (rtl8100RxFrameError(descStatus1) || !pktSize) {
+            DebugLog("Ethernet [RealtekRTL8100]: Bad RX frame.\n");
+            netStats->inputErrors++;
+            opts1 |= kRxBufferPktSize;
+            goto nextDesc;
+        }
         bufPkt = rxMbufArray[rxNextDescIndex];
         vlanTag = (descStatus2 & RxVlanTag) ? OSSwapInt16(descStatus2 & 0xffff) : 0;
         //DebugLog("rxInterrupt(): descStatus1=0x%x, descStatus2=0x%x, pktSize=%u\n", descStatus1, descStatus2, pktSize);
@@ -3013,6 +3021,7 @@ bool RTL8100::initRTL8100()
 
     /* Get the RxConfig parameters. */
     rxConfigMask = rtl_chip_info[tp->chipset].RxConfigMask;
+    rxConfigBase = rtl8100RxConfigBase(tp->mcfg);
     tp->cp_cmd = ReadReg16(CPlusCmd);
     
     rtl8101_get_bios_setting(tp);
@@ -3105,50 +3114,6 @@ bool RTL8100::initRTL8100()
             break;
     }
     
-    switch (tp->mcfg) {
-        case CFG_METHOD_1:
-        case CFG_METHOD_2:
-        case CFG_METHOD_3:
-        case CFG_METHOD_4:
-        case CFG_METHOD_5:
-        case CFG_METHOD_6:
-        case CFG_METHOD_7:
-        case CFG_METHOD_8:
-        case CFG_METHOD_9:
-            tp->RequireResetPhyToChgSpd = TRUE;
-            break;
-    }
-    
-    switch (tp->mcfg) {
-        case CFG_METHOD_14:
-        case CFG_METHOD_17:
-        case CFG_METHOD_18:
-        case CFG_METHOD_19:
-            tp->HwSuppMagicPktVer = WAKEUP_MAGIC_PACKET_V2;
-            break;
-        case CFG_METHOD_DEFAULT:
-            tp->HwSuppMagicPktVer = WAKEUP_MAGIC_PACKET_NOT_SUPPORT;
-            break;
-        default:
-            tp->HwSuppMagicPktVer = WAKEUP_MAGIC_PACKET_V1;
-            break;
-    }
-    
-    switch (tp->mcfg) {
-        case CFG_METHOD_17:
-            tp->sw_ram_code_ver = NIC_RAMCODE_VERSION_CFG_METHOD_17;
-            break;
-        case CFG_METHOD_18:
-        case CFG_METHOD_19:
-            tp->sw_ram_code_ver = NIC_RAMCODE_VERSION_CFG_METHOD_18;
-            break;
-    }
-    
-    if (tp->HwIcVerUnknown) {
-        tp->NotWrRamCodeToMicroP = TRUE;
-        tp->NotWrMcuPatchCode = TRUE;
-    }
-
     switch (tp->mcfg) {
         case CFG_METHOD_1:
         case CFG_METHOD_2:
@@ -3367,7 +3332,7 @@ void RTL8100::startRTL8100(UInt16 newIntrMitigate, bool enableInterrupts)
     if (!rxDescArray || !txDescArray)
         return;
     
-    WriteReg32(RxConfig, (RX_DMA_BURST << RxCfgDMAShift));
+    WriteReg32(RxConfig, rxConfigBase);
     
     rtl8101_nic_reset(tp);
     

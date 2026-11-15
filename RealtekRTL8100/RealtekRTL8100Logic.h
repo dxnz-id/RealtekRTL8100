@@ -9,6 +9,47 @@
 #define RTL8100_TCP_HDR_LEN 20
 #define RTL8100_MC_FILTER_LIMIT 32
 
+#define RTL8100_RX_DMA_BURST 6
+#define RTL8100_RX_DMA_SHIFT 8
+#define RTL8100_RX_RESERVED2_DATA 7
+#define RTL8100_RX_RESERVED2_SHIFT 13
+#define RTL8100_RXCFG_128_INT_EN (1u << 15)
+#define RTL8100_RX_EARLY_OFF_V2 (1u << 11)
+#define RTL8100_RX_SINGLE_FETCH_V2 (1u << 14)
+
+#define RTL8100_RX_STATUS_LEN_MASK 0x1fffu
+#define RTL8100_RX_STATUS_RES 0x00200000u
+#define RTL8100_RX_STATUS_CRC 0x00080000u
+#define RTL8100_RX_STATUS_RUNT 0x00100000u
+#define RTL8100_RX_STATUS_RWT 0x00400000u
+#define RTL8100_RX_CRC_SIZE 4u
+
+static inline uint32_t rtl8100RxConfigBase(unsigned int mcfg)
+{
+    uint32_t burst = RTL8100_RX_DMA_BURST << RTL8100_RX_DMA_SHIFT;
+
+    /* Mirrors rtl8101_rx_config_V1/V2/V3 in the Linux driver. */
+    if (mcfg == 10)
+        return burst;
+    if (mcfg == 17 || mcfg == 18 || mcfg == 19)
+        return RTL8100_RXCFG_128_INT_EN | RTL8100_RX_EARLY_OFF_V2 |
+               RTL8100_RX_SINGLE_FETCH_V2 | burst;
+    return (RTL8100_RX_RESERVED2_DATA << RTL8100_RX_RESERVED2_SHIFT) | burst;
+}
+
+static inline uint32_t rtl8100RxFrameError(uint32_t status1)
+{
+    return status1 & (RTL8100_RX_STATUS_RES | RTL8100_RX_STATUS_CRC |
+                      RTL8100_RX_STATUS_RUNT | RTL8100_RX_STATUS_RWT);
+}
+
+static inline uint32_t rtl8100RxPayloadSize(uint32_t status1)
+{
+    uint32_t length = status1 & RTL8100_RX_STATUS_LEN_MASK;
+
+    return (length > RTL8100_RX_CRC_SIZE) ? length - RTL8100_RX_CRC_SIZE : 0;
+}
+
 static inline uint32_t rtl8100EtherCRC(int length, const unsigned char *data)
 {
     uint32_t crc = 0xffffffffU;

@@ -119,9 +119,6 @@ typedef struct RtlStatData {
 /* statitics timer period in ms. */
 #define kTimeoutMS 1000
 
-/* Treshhold value in ns for the modified interrupt sequence. */
-#define kFastIntrTreshhold 200000
-
 /* Treshhold value to wake a stalled queue */
 #define kTxQueueWakeTreshhold (kNumTxDesc / 3)
 
@@ -309,6 +306,7 @@ private:
     struct RtlDmaDesc *rxDescArray;
 	IOMbufNaturalMemoryCursor *rxMbufCursor;
     UInt64 multicastFilter;
+    UInt32 rxConfigBase;
     UInt32 rxNextDescIndex;
     UInt32 rxConfigMask;
     

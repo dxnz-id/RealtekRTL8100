@@ -52,6 +52,12 @@ Troubleshooting
 Changelog
 ---------
 
+Version 2.0.5 (2026-11-15):
+ - Keep the per-chip RX DMA burst and RX configuration bits when the packet filter changes.
+ - Drop receive frames flagged with CRC, runt, receive-error or watchdog errors.
+ - Reject receive frames shorter than the CRC field.
+ - Remove an unrelated vendor message from the load log.
+
 Version 2.0.4 (2026-11-15):
  - Disable the interface before detaching it or freeing DMA.
  - Guard medium dictionary allocation failures.

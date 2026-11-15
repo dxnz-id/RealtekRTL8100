@@ -93,6 +93,56 @@ else
     fail "outputStart can read uninitialized checksum flags"
 fi
 
+# RxConfig base bits must survive the promiscuous and multicast writes.
+PROMISC=$(extract 'IOReturn RTL8100::setPromiscuousMode(bool active)')
+MULTICASTMODE=$(extract 'IOReturn RTL8100::setMulticastMode(bool active)')
+if printf '%s\n' "$PROMISC" | grep -q 'rxConfigBase' &&
+   printf '%s\n' "$MULTICASTMODE" | grep -q 'rxConfigBase'; then
+    pass "RxConfig base is preserved by the packet filter writes"
+else
+    fail "RxConfig base is cleared by a packet filter write"
+fi
+
+# startRTL8100 must program the per-chip RxConfig base, not a bare DMA burst.
+START=$(extract 'void RTL8100::startRTL8100(UInt16 newIntrMitigate, bool enableInterrupts)')
+if printf '%s\n' "$START" | grep -q 'WriteReg32(RxConfig, rxConfigBase)'; then
+    pass "startRTL8100 programs the per-chip RxConfig base"
+else
+    fail "startRTL8100 programs a bare RxConfig value"
+fi
+
+# rxInterrupt must drop error frames and reject lengths below the CRC size.
+RX=$(extract 'UInt32 RTL8100::rxInterrupt(IONetworkInterface *interface, uint32_t maxCount, IOMbufQueue *pollQueue, void *context)')
+if printf '%s\n' "$RX" | grep -q 'rtl8100RxFrameError' &&
+   printf '%s\n' "$RX" | grep -q 'rtl8100RxPayloadSize'; then
+    pass "rxInterrupt validates RX status and payload length"
+else
+    fail "rxInterrupt can deliver error frames or underflow the payload length"
+fi
+
+# No off-topic vendor message in the boot log.
+if grep -q 'tonymacx86' "$CPP"; then
+    fail "boot log still contains the tonymacx86 message"
+else
+    pass "boot log has no off-topic vendor message"
+fi
+
+# No unused interrupt threshold constant.
+if grep -q 'kFastIntrTreshhold' RealtekRTL8100/RealtekRTL8100.h; then
+    fail "unused kFastIntrTreshhold constant remains"
+else
+    pass "no unused kFastIntrTreshhold constant"
+fi
+
+# initRTL8100 must configure each chip parameter exactly once.
+INIT=$(extract 'bool RTL8100::initRTL8100()')
+INIT_COUNT=$(printf '%s\n' "$INIT" | grep -c 'RequireResetPhyToChgSpd = TRUE;')
+if [ "$INIT_COUNT" -eq 1 ]; then
+    pass "initRTL8100 configures chip parameters once"
+else
+    fail "initRTL8100 duplicates chip parameter setup"
+fi
+
 if [ "$FAIL" -ne 0 ]; then
     exit 1
 fi

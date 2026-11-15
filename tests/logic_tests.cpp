@@ -95,6 +95,36 @@ static void test_adjust_ipv6_header_rejects_null(void)
     assert(!rtl8100AdjustIPv6Header(NULL, 74, NULL));
 }
 
+static void test_rx_config_base_per_chip(void)
+{
+    assert(rtl8100RxConfigBase(10) == 0x00000600u);
+    assert(rtl8100RxConfigBase(15) == 0x0000e600u);
+    assert(rtl8100RxConfigBase(16) == 0x0000e600u);
+    assert(rtl8100RxConfigBase(17) == 0x0000ce00u);
+    assert(rtl8100RxConfigBase(18) == 0x0000ce00u);
+    assert(rtl8100RxConfigBase(19) == 0x0000ce00u);
+    assert(rtl8100RxConfigBase(1) == 0x0000e600u);
+}
+
+static void test_rx_frame_error_flags(void)
+{
+    assert(rtl8100RxFrameError(0) == 0);
+    assert(rtl8100RxFrameError(0x00080000u) == 0x00080000u);
+    assert(rtl8100RxFrameError(0x00100000u) == 0x00100000u);
+    assert(rtl8100RxFrameError(0x00200000u) == 0x00200000u);
+    assert(rtl8100RxFrameError(0x00400000u) == 0x00400000u);
+    assert(rtl8100RxFrameError(0x0000012cu) == 0);
+}
+
+static void test_rx_payload_size_rejects_short_frames(void)
+{
+    assert(rtl8100RxPayloadSize(60) == 56);
+    assert(rtl8100RxPayloadSize(1518) == 1514);
+    assert(rtl8100RxPayloadSize(4) == 0);
+    assert(rtl8100RxPayloadSize(3) == 0);
+    assert(rtl8100RxPayloadSize(0) == 0);
+}
+
 int main(void)
 {
     test_multicast_sets_bits_above_31();
@@ -104,6 +134,9 @@ int main(void)
     test_adjust_ipv6_header_accepts_exact_minimum();
     test_adjust_ipv6_header_rejects_short_packet();
     test_adjust_ipv6_header_rejects_null();
+    test_rx_config_base_per_chip();
+    test_rx_frame_error_flags();
+    test_rx_payload_size_rejects_short_frames();
 
     printf("logic tests passed\n");
     return 0;
