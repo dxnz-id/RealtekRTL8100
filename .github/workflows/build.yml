@@ -3,7 +3,7 @@ name: Build kext
 on:
   push:
     branches:
-      - fix/uaf-guard
+      - master
   workflow_dispatch:
 
 permissions:
