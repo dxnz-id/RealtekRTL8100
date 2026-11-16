@@ -111,6 +111,17 @@ else
     fail "startRTL8100 programs a bare RxConfig value"
 fi
 
+# startRTL8100 must reset the software RX ring index after resetting the NIC.
+# enable() and setLinkUp() both call it during boot; a stale index offsets the ring.
+NIC_RESET_LINE=$(line_of "$START" 'rtl8101_nic_reset(tp);')
+RX_INDEX_LINE=$(line_of "$START" 'rxNextDescIndex = 0;')
+if [ -n "$NIC_RESET_LINE" ] && [ -n "$RX_INDEX_LINE" ] &&
+   [ "$NIC_RESET_LINE" -lt "$RX_INDEX_LINE" ]; then
+    pass "startRTL8100 resets the RX ring index with the NIC"
+else
+    fail "startRTL8100 leaves the RX ring index stale after a NIC reset"
+fi
+
 # rxInterrupt must drop error frames and reject lengths below the CRC size.
 RX=$(extract 'UInt32 RTL8100::rxInterrupt(IONetworkInterface *interface, uint32_t maxCount, IOMbufQueue *pollQueue, void *context)')
 if printf '%s\n' "$RX" | grep -q 'rtl8100RxFrameError' &&

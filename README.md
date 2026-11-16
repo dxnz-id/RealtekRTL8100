@@ -52,6 +52,9 @@ Troubleshooting
 Changelog
 ---------
 
+Version 2.0.6 (2026-11-16):
+ - Reset the RX ring after a NIC reset so the boot link uses the correct descriptor index.
+
 Version 2.0.5 (2026-11-15):
  - Keep the per-chip RX DMA burst and RX configuration bits when the packet filter changes.
  - Drop receive frames flagged with CRC, runt, receive-error or watchdog errors.

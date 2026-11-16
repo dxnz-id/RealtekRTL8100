@@ -3336,6 +3336,13 @@ void RTL8100::startRTL8100(UInt16 newIntrMitigate, bool enableInterrupts)
     
     rtl8101_nic_reset(tp);
     
+    /* The NIC reset clears its RX descriptor pointer; keep the software ring in sync. */
+    for (UInt32 i = 0; i < kNumRxDesc; i++) {
+        rxDescArray[i].opts2 = 0;
+        rxDescArray[i].opts1 = OSSwapHostToLittleInt32(kRxBufferPktSize | DescOwn | ((i == kRxLastDesc) ? RingEnd : 0));
+    }
+    rxNextDescIndex = 0;
+    
     WriteReg8(Cfg9346, Cfg9346_Unlock);
     
     switch (tp->mcfg) {
